@@ -83,3 +83,24 @@ pub mod spanned_serde;
 pub use spanned_serde::{
     from_node, from_yaml, from_yaml_with_options, Error, FromNodeError, FromYamlError, Spanned,
 };
+
+#[cfg(feature = "serde")]
+#[doc(hidden)]
+pub mod ser;
+
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+#[doc(inline)]
+pub use ser::{
+    node_to_yaml_string, to_node, to_node_with_options, to_yaml_string,
+    to_yaml_string_with_options, AsFlowMap, AsFlowSeq, FlowMapping, FlowSequence, SerError,
+    SerializerOptions, StyledNode, YamlStyle,
+};
+
+#[cfg(feature = "serde")]
+#[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
+pub use ser::flow_style;
+
+#[cfg(feature = "serde")]
+#[doc(hidden)]
+pub use ser::_private;

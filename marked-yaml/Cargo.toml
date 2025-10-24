@@ -18,6 +18,7 @@ maintenance = { status = "experimental" }
 default = []
 serde = ["dep:serde"]
 serde-path = ["serde", "dep:serde_path_to_error"]
+derive = ["serde", "dep:marked-yaml-derive"]
 
 [dependencies]
 doc-comment = "0.3"
@@ -25,6 +26,10 @@ yaml-rust = { version = "0.10.2", package = "yaml-rust2" }
 hashlink = "0.10.0"
 serde = { version = "1.0.194", optional = true, features = ["derive"] }
 serde_path_to_error = { version = "0.1.16", optional = true }
+marked-yaml-derive = { path = "../marked-yaml-derive", optional = true }
+
+[dev-dependencies]
+marked-yaml-derive = { path = "../marked-yaml-derive" }
 
 [package.metadata.docs.rs]
 all-features = true

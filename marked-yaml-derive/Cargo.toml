@@ -1,0 +1,18 @@
+[package]
+name = "marked-yaml-derive"
+version = "0.1.0"
+edition = "2021"
+description = "Proc macro for marked-yaml serialization attributes"
+license = "MIT"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+
+[dev-dependencies]
+serde = { version = "1.0", features = ["derive"] }
+marked-yaml = { path = "../marked-yaml", features = ["serde"] }

@@ -1,5 +1,5 @@
 [workspace]
 members = [
-    "marked-yaml",
+    "marked-yaml", "marked-yaml-derive",
 ]
 resolver = "2"

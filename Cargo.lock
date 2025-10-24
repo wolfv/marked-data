@@ -65,9 +65,21 @@ version = "0.8.0"
 dependencies = [
  "doc-comment",
  "hashlink",
+ "marked-yaml-derive",
  "serde",
  "serde_path_to_error",
  "yaml-rust2",
+]
+
+[[package]]
+name = "marked-yaml-derive"
+version = "0.1.0"
+dependencies = [
+ "marked-yaml",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn",
 ]
 
 [[package]]
