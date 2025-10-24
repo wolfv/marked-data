@@ -1,8 +1,8 @@
 //! Comprehensive tests for marked_yaml serialization
 
 use marked_yaml::{
-    from_yaml, node_to_yaml_string, parse_yaml, to_node, to_yaml_string, to_yaml_string_with_options,
-    SerializerOptions,
+    from_yaml, node_to_yaml_string, parse_yaml, to_node, to_yaml_string,
+    to_yaml_string_with_options, SerializerOptions,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -147,7 +147,11 @@ fn test_serialize_with_vec() {
 
     let team = Team {
         name: "Engineering".to_string(),
-        members: vec!["Alice".to_string(), "Bob".to_string(), "Charlie".to_string()],
+        members: vec![
+            "Alice".to_string(),
+            "Bob".to_string(),
+            "Charlie".to_string(),
+        ],
     };
 
     let yaml = to_yaml_string(&team).unwrap();

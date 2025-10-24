@@ -133,11 +133,3 @@ fn expand_serialize(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream
 
     Ok(expanded)
 }
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_compile() {
-        // Compile-time tests via trybuild will go here
-    }
-}

@@ -9,6 +9,16 @@ use std::hash::{Hash, Hasher};
 use std::ops::{Deref, DerefMut};
 use yaml_rust::Yaml as YamlNode;
 
+/// Style preference for YAML nodes during serialization
+#[cfg(feature = "serde")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum YamlNodeStyle {
+    /// Block style (multi-line with indentation)
+    Block,
+    /// Flow style (inline with brackets/braces)
+    Flow,
+}
+
 /// A displayable marker for a YAML node
 ///
 /// While `Marker` can be `Display`'d it doesn't understand what its source
@@ -457,6 +467,10 @@ pub(crate) type MappingHash = LinkedHashMap<MarkedScalarNode, Node>;
 pub struct MarkedMappingNode {
     span: Span,
     value: MappingHash,
+    /// Optional style preference for YAML serialization (flow vs block)
+    /// None means use default/global settings
+    #[cfg(feature = "serde")]
+    pub(crate) style: Option<YamlNodeStyle>,
 }
 
 /// A marked YAML sequence node
@@ -478,6 +492,10 @@ pub struct MarkedMappingNode {
 pub struct MarkedSequenceNode {
     span: Span,
     value: Vec<Node>,
+    /// Optional style preference for YAML serialization (flow vs block)
+    /// None means use default/global settings
+    #[cfg(feature = "serde")]
+    pub(crate) style: Option<YamlNodeStyle>,
 }
 
 macro_rules! basic_traits {
@@ -1013,6 +1031,8 @@ impl MarkedSequenceNode {
         Self {
             span,
             value: Vec::new(),
+            #[cfg(feature = "serde")]
+            style: None,
         }
     }
 
@@ -1023,7 +1043,22 @@ impl MarkedSequenceNode {
     /// let node = MarkedSequenceNode::new(Span::new_blank(), Vec::new());
     /// ```
     pub fn new(span: Span, value: Vec<Node>) -> Self {
-        Self { span, value }
+        Self {
+            span,
+            value,
+            #[cfg(feature = "serde")]
+            style: None,
+        }
+    }
+
+    /// Create a new sequence node with flow style
+    #[cfg(feature = "serde")]
+    pub fn new_flow(span: Span, value: Vec<Node>) -> Self {
+        Self {
+            span,
+            value,
+            style: Some(YamlNodeStyle::Flow),
+        }
     }
 
     /// Get the node at the given index
@@ -1127,7 +1162,12 @@ where
                 end: value[value.len() - 1].span().end,
             },
         };
-        Self { span, value }
+        Self {
+            span,
+            value,
+            #[cfg(feature = "serde")]
+            style: None,
+        }
     }
 }
 
@@ -1152,7 +1192,12 @@ where
                 Span { start, end }
             }
         };
-        Self { span, value }
+        Self {
+            span,
+            value,
+            #[cfg(feature = "serde")]
+            style: None,
+        }
     }
 }
 
@@ -1167,6 +1212,8 @@ impl MarkedMappingNode {
         Self {
             span,
             value: LinkedHashMap::new(),
+            #[cfg(feature = "serde")]
+            style: None,
         }
     }
 
@@ -1178,7 +1225,22 @@ impl MarkedMappingNode {
     /// let node = MarkedMappingNode::new(Span::new_blank(), LinkedHashMap::new());
     /// ```
     pub fn new(span: Span, value: MappingHash) -> Self {
-        Self { span, value }
+        Self {
+            span,
+            value,
+            #[cfg(feature = "serde")]
+            style: None,
+        }
+    }
+
+    /// Create a new mapping node with flow style
+    #[cfg(feature = "serde")]
+    pub fn new_flow(span: Span, value: MappingHash) -> Self {
+        Self {
+            span,
+            value,
+            style: Some(YamlNodeStyle::Flow),
+        }
     }
 
     /// Get the node for the given string key
@@ -1317,7 +1379,12 @@ where
                 Span { start, end }
             }
         };
-        Self { span, value }
+        Self {
+            span,
+            value,
+            #[cfg(feature = "serde")]
+            style: None,
+        }
     }
 }
 

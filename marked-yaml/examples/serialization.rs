@@ -1,6 +1,6 @@
 //! Example demonstrating serialization features in marked_yaml
 
-use marked_yaml::{to_yaml_string, to_yaml_string_with_options, from_yaml, SerializerOptions};
+use marked_yaml::{from_yaml, to_yaml_string, to_yaml_string_with_options, SerializerOptions};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

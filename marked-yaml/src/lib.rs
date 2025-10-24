@@ -92,15 +92,10 @@ pub mod ser;
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
 #[doc(inline)]
 pub use ser::{
-    node_to_yaml_string, to_node, to_node_with_options, to_yaml_string,
-    to_yaml_string_with_options, AsFlowMap, AsFlowSeq, FlowMapping, FlowSequence, SerError,
-    SerializerOptions, StyledNode, YamlStyle,
+    as_flow_mapping, as_flow_sequence, node_to_yaml_string, to_node, to_node_with_options,
+    to_yaml_string, to_yaml_string_with_options, SerError, SerializerOptions,
 };
 
 #[cfg(feature = "serde")]
 #[cfg_attr(docsrs, doc(cfg(feature = "serde")))]
-pub use ser::flow_style;
-
-#[cfg(feature = "serde")]
-#[doc(hidden)]
-pub use ser::_private;
+pub use types::YamlNodeStyle;

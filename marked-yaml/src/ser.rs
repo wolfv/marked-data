@@ -23,12 +23,12 @@
 //! ```
 
 use crate::{
-    types::{MarkedMappingNode, MarkedScalarNode, MarkedSequenceNode, MappingHash},
+    types::{MappingHash, MarkedMappingNode, MarkedScalarNode, MarkedSequenceNode},
     Node, Span,
 };
 use serde::ser::{
-    Serialize, SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant,
-    SerializeTuple, SerializeTupleStruct, SerializeTupleVariant,
+    Serialize, SerializeMap, SerializeSeq, SerializeStruct, SerializeStructVariant, SerializeTuple,
+    SerializeTupleStruct, SerializeTupleVariant,
 };
 use std::fmt::{self, Display};
 
@@ -55,112 +55,71 @@ impl serde::ser::Error for SerError {
     }
 }
 
-/// Style for rendering YAML nodes
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum YamlStyle {
-    /// Block style (default): multi-line with indentation
-    Block,
-    /// Flow style (inline): single-line with brackets/braces
-    Flow,
-}
-
-/// A Node with style information for serialization
-#[derive(Clone, Debug)]
-pub struct StyledNode {
-    /// The underlying node
-    pub node: Node,
-    /// The style to use when serializing this node
-    pub style: YamlStyle,
-}
-
-impl StyledNode {
-    /// Create a new styled node
-    pub fn new(node: Node, style: YamlStyle) -> Self {
-        Self { node, style }
-    }
-
-    /// Create a block-style node
-    pub fn block(node: Node) -> Self {
-        Self::new(node, YamlStyle::Block)
-    }
-
-    /// Create a flow-style node
-    pub fn flow(node: Node) -> Self {
-        Self::new(node, YamlStyle::Flow)
-    }
-}
-
-/// A marker type for flow-style mappings (not yet fully implemented)
-///
-/// **Note**: This type is reserved for future use. Currently, to serialize
-/// maps in flow style, use `SerializerOptions` with `flow_mappings = true`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FlowMapping<T>(pub T);
-
-impl<T: Serialize> Serialize for FlowMapping<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
-
-/// A marker type for flow-style sequences (not yet fully implemented)
-///
-/// **Note**: This type is reserved for future use. Currently, to serialize
-/// sequences in flow style, use `SerializerOptions` with `flow_sequences = true`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FlowSequence<T>(pub T);
-
-impl<T: Serialize> Serialize for FlowSequence<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.serialize(serializer)
-    }
-}
-
 /// Serialization options for controlling YAML output format
 #[derive(Clone, Debug)]
 pub struct SerializerOptions {
-    /// Whether to use flow style (inline) for sequences by default
+    /// Whether to use flow style (inline) for **all** sequences
+    ///
+    /// When true, sequences like `vec![1, 2, 3]` will be output as `[1, 2, 3]`
+    /// instead of:
+    /// ```yaml
+    /// - 1
+    /// - 2
+    /// - 3
+    /// ```
     pub flow_sequences: bool,
-    /// Whether to use flow style (inline) for mappings by default
+
+    /// Whether to use flow style (inline) for **all** mappings
+    ///
+    /// When true, mappings will be output as `{key: value}` instead of:
+    /// ```yaml
+    /// key: value
+    /// ```
     pub flow_mappings: bool,
-    /// Path-based flow style configuration (e.g., "users[]", "config.servers[]")
-    /// Paths support [] suffix for sequences and {} for mappings
-    pub flow_paths: Vec<String>,
 }
 
 impl SerializerOptions {
-    /// Create options with flow style for specific paths
+    /// Enable flow style for all sequences
     ///
     /// # Example
     ///
     /// ```
-    /// use marked_yaml::SerializerOptions;
+    /// use marked_yaml::{to_yaml_string_with_options, SerializerOptions};
+    /// use serde::Serialize;
     ///
-    /// // Make all sequences at "users" and "config.addresses" flow style
-    /// let options = SerializerOptions::with_flow_paths(vec![
-    ///     "users[]".to_string(),
-    ///     "config.addresses[]".to_string(),
-    /// ]);
+    /// #[derive(Serialize)]
+    /// struct Config {
+    ///     ports: Vec<i32>,
+    /// }
+    ///
+    /// let mut options = SerializerOptions::default();
+    /// options.flow_sequences = true;
+    ///
+    /// let config = Config { ports: vec![80, 443, 8080] };
+    /// let yaml = to_yaml_string_with_options(&config, &options).unwrap();
+    /// assert!(yaml.contains("[80, 443, 8080]"));
     /// ```
-    pub fn with_flow_paths(paths: Vec<String>) -> Self {
+    pub fn with_flow_sequences() -> Self {
         Self {
-            flow_sequences: false,
+            flow_sequences: true,
             flow_mappings: false,
-            flow_paths: paths,
         }
     }
 
-    /// Check if a path should use flow style
-    #[allow(dead_code)]
-    pub(crate) fn should_flow(&self, _path: &str) -> bool {
-        // TODO: Implement path matching
-        false
+    /// Enable flow style for all mappings
+    pub fn with_flow_mappings() -> Self {
+        Self {
+            flow_sequences: false,
+            flow_mappings: true,
+        }
+    }
+
+    /// Enable flow style for both sequences and mappings
+    pub fn with_flow_all() -> Self {
+        Self {
+            flow_sequences: true,
+            flow_mappings: true,
+        }
     }
 }
 
@@ -169,7 +128,6 @@ impl Default for SerializerOptions {
         Self {
             flow_sequences: false,
             flow_mappings: false,
-            flow_paths: Vec::new(),
         }
     }
 }
@@ -202,50 +160,22 @@ pub fn to_yaml_string_with_options<T>(
 where
     T: Serialize,
 {
-    // Clear any previous flow hints
-    clear_flow_hints();
-
     let node = to_node_with_options(value, options)?;
-    let result = node_to_yaml_string(&node, options);
-
-    // Clear flow hints after serialization
-    clear_flow_hints();
-
-    result
+    node_to_yaml_string(&node, options)
 }
 
 /// Convert a `Node` to a YAML string
 ///
-/// This uses yaml_rust2's YamlEmitter for proper YAML formatting.
+/// This uses our custom emitter which supports flow style control and produces
+/// more compact, standard-compliant output.
 pub fn node_to_yaml_string(node: &Node, options: &SerializerOptions) -> Result<String, SerError> {
-    use yaml_rust::YamlEmitter;
-
-    // If we need flow style, use our custom emitter
-    // Check both the options and if any nodes are marked for flow style
-    let has_flow_nodes = FLOW_NODES.with(|nodes| !nodes.borrow().is_empty());
-    if options.flow_mappings || options.flow_sequences || has_flow_nodes {
-        // Note: yaml_rust doesn't support per-node flow style control
-        // We'll use our custom emitter for flow style support
-        return Ok(emit_yaml(node, options));
-    }
-
-    // Convert Node to yaml_rust Yaml
-    let yaml_node: yaml_rust::Yaml = node.clone().into();
-
-    // Use YamlEmitter to convert to string
-    let mut output = String::new();
-    {
-        let mut emitter = YamlEmitter::new(&mut output);
-        emitter.dump(&yaml_node).map_err(|e| SerError::Custom(e.to_string()))?;
-    }
-
-    // Strip the YAML document separator if present
-    // yaml_rust adds "---\n" at the beginning which we don't always want
-    if output.starts_with("---\n") {
-        output = output[4..].to_string();
-    }
-
-    Ok(output)
+    // Always use our custom emitter for consistent, well-formatted output
+    // Benefits:
+    // - Supports per-node flow style control
+    // - Produces compact list formatting (no blank lines after dashes)
+    // - Consistent behavior regardless of options
+    // - No dependency on yaml_rust for serialization
+    Ok(emit_yaml(node, options))
 }
 
 /// Convert a Rust data structure to a `Node`
@@ -271,7 +201,7 @@ where
 /// Convert a Rust data structure to a `Node` with options
 pub fn to_node_with_options<T>(value: &T, options: &SerializerOptions) -> Result<Node, SerError>
 where
-    T: Serialize,
+    T: Serialize + ?Sized,
 {
     let serializer = NodeSerializer {
         options: options.clone(),
@@ -279,129 +209,136 @@ where
     value.serialize(serializer)
 }
 
-use std::cell::RefCell;
-use std::collections::HashSet;
+// No thread-local storage needed for the serialize_with approach!
 
-thread_local! {
-    /// Thread-local storage for flow style hints during serialization
-    /// This tracks a stack of flow style preferences as we serialize nested structures
-    static FLOW_HINT_STACK: RefCell<Vec<bool>> = RefCell::new(Vec::new());
-
-    /// Track sequences/mappings that should use flow style
-    /// We store a unique "signature" for each node - the content hash
-    static FLOW_NODES: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-}
-
-/// Push a flow style hint onto the stack
-fn push_flow_hint(use_flow: bool) {
-    FLOW_HINT_STACK.with(|stack| {
-        stack.borrow_mut().push(use_flow);
-    });
-}
-
-/// Pop a flow style hint from the stack and return it
-fn pop_flow_hint() -> Option<bool> {
-    FLOW_HINT_STACK.with(|stack| {
-        stack.borrow_mut().pop()
-    })
-}
-
-/// Mark a node for flow style using a content-based signature
-fn mark_for_flow_style(signature: String) {
-    FLOW_NODES.with(|nodes| {
-        nodes.borrow_mut().insert(signature);
-    });
-}
-
-/// Check if a node signature should use flow style
-fn should_use_flow_style(signature: &str) -> bool {
-    FLOW_NODES.with(|nodes| {
-        nodes.borrow().contains(signature)
-    })
-}
-
-/// Clear all flow style hints
-fn clear_flow_hints() {
-    FLOW_HINT_STACK.with(|stack| {
-        stack.borrow_mut().clear();
-    });
-    FLOW_NODES.with(|nodes| {
-        nodes.borrow_mut().clear();
-    });
-}
-
-/// Create a signature for a node based on its content
-/// This is used to identify nodes that should use flow style
-fn node_signature(node: &Node) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    fn hash_node(node: &Node) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        match node {
-            Node::Scalar(s) => {
-                "scalar".hash(&mut hasher);
-                s.as_str().hash(&mut hasher);
+/// Implement Serialize for Node so that when a Node is serialized through
+/// a NodeSerializer, it returns itself directly, preserving all metadata
+/// including style information
+impl Serialize for Node {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Node::Scalar(scalar) => {
+                // Serialize scalars as their underlying values
+                let s = scalar.as_str();
+                if let Some(b) = scalar.as_bool() {
+                    serializer.serialize_bool(b)
+                } else if let Ok(i) = s.parse::<i64>() {
+                    serializer.serialize_i64(i)
+                } else if let Ok(f) = s.parse::<f64>() {
+                    serializer.serialize_f64(f)
+                } else {
+                    serializer.serialize_str(s)
+                }
             }
             Node::Sequence(seq) => {
-                "sequence".hash(&mut hasher);
-                seq.len().hash(&mut hasher);
-                // Hash first few elements for uniqueness
-                for (i, item) in seq.iter().enumerate().take(3) {
-                    i.hash(&mut hasher);
-                    hash_node(item).hash(&mut hasher);
-                }
+                // Serialize sequences - preserve the MarkedSequenceNode structure
+                // by implementing Serialize on it
+                seq.serialize(serializer)
             }
             Node::Mapping(map) => {
-                "mapping".hash(&mut hasher);
-                map.len().hash(&mut hasher);
-                // Hash first few keys for uniqueness
-                for (i, (k, v)) in map.iter().enumerate().take(3) {
-                    i.hash(&mut hasher);
-                    k.as_str().hash(&mut hasher);
-                    hash_node(v).hash(&mut hasher);
-                }
+                // Serialize mappings - preserve the MarkedMappingNode structure
+                map.serialize(serializer)
             }
         }
-        hasher.finish()
     }
-
-    format!("{:x}", hash_node(node))
 }
 
-/// Private API for proc macro use
-#[doc(hidden)]
-pub mod _private {
-    use super::*;
-
-    /// Wrapper that hints this value should use flow style
-    /// Used by the proc macro derive
-    pub struct FlowHint<'a, T>(pub &'a T);
-
-    impl<'a, T: Serialize> Serialize for FlowHint<'a, T> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            // Push a hint onto the thread-local stack that this value should use flow style
-            // This will be checked by NodeSerializer methods (serialize_seq, serialize_map)
-            push_flow_hint(true);
-
-            let result = self.0.serialize(serializer);
-
-            // Pop the hint after serialization
-            pop_flow_hint();
-
-            result
-        }
+/// Implement Serialize for MarkedSequenceNode to preserve style metadata
+/// This is used when a Node with style information is re-serialized
+impl Serialize for MarkedSequenceNode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Use a wrapper struct to pass the sequence with metadata through
+        // The serializer will call serialize_newtype_struct, and we can
+        // return the sequence as a Node from there
+        serializer.serialize_newtype_struct("__MarkedSequenceNode", &PreservedSeq(self))
     }
+}
 
-    /// Check if flow hint is currently active
-    #[allow(dead_code)]
-    pub(crate) fn is_flow_hint_active() -> bool {
-        FLOW_HINT_STACK.with(|stack| {
-            stack.borrow().last().copied().unwrap_or(false)
-        })
+/// Wrapper to serialize a sequence while preserving its style
+/// Uses the style marker approach to communicate style to SeqSerializer
+struct PreservedSeq<'a>(&'a MarkedSequenceNode);
+
+impl<'a> Serialize for PreservedSeq<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeSeq;
+
+        // Calculate size including optional style marker
+        let size = if self.0.style.is_some() {
+            self.0.len() + 1
+        } else {
+            self.0.len()
+        };
+
+        let mut seq = serializer.serialize_seq(Some(size))?;
+
+        // FIRST: serialize a style marker if we have style metadata
+        #[cfg(feature = "serde")]
+        if let Some(style) = self.0.style {
+            seq.serialize_element(&StyleMarker(style))?;
+        }
+
+        // Then serialize all the actual elements
+        for item in self.0.iter() {
+            seq.serialize_element(item)?;
+        }
+
+        seq.end()
+    }
+}
+
+/// Implement Serialize for MarkedMappingNode to preserve style metadata
+/// This is used when a Node with style information is re-serialized
+impl Serialize for MarkedMappingNode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Use a wrapper struct to pass the mapping with metadata through
+        serializer.serialize_newtype_struct("__MarkedMappingNode", &PreservedMap(self))
+    }
+}
+
+/// Wrapper to serialize a mapping while preserving its style
+/// Uses the style marker approach to communicate style to MapSerializer
+struct PreservedMap<'a>(&'a MarkedMappingNode);
+
+impl<'a> Serialize for PreservedMap<'a> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeMap;
+
+        // Calculate size including optional style marker
+        let size = if self.0.style.is_some() {
+            self.0.len() + 1
+        } else {
+            self.0.len()
+        };
+
+        let mut map = serializer.serialize_map(Some(size))?;
+
+        // FIRST: serialize a style marker if we have style metadata
+        #[cfg(feature = "serde")]
+        if let Some(style) = self.0.style {
+            map.serialize_entry("__style_marker", &StyleMarker(style))?;
+        }
+
+        // Then serialize all the actual entries
+        for (k, v) in self.0.iter() {
+            map.serialize_entry(k.as_str(), v)?;
+        }
+
+        map.end()
     }
 }
 
@@ -516,13 +453,23 @@ impl serde::Serializer for NodeSerializer {
 
     fn serialize_newtype_struct<T: ?Sized>(
         self,
-        _name: &'static str,
+        name: &'static str,
         value: &T,
     ) -> Result<Self::Ok, Self::Error>
     where
         T: Serialize,
     {
-        value.serialize(self)
+        // Special handling for preserved nodes - just serialize them directly
+        // This allows us to return Nodes with style metadata intact
+        if name == "__marked_yaml_preserved_node"
+            || name == "__MarkedSequenceNode"
+            || name == "__MarkedMappingNode"
+        {
+            // The value is a Node or contains a Node - serialize it and return directly
+            value.serialize(self)
+        } else {
+            value.serialize(self)
+        }
     }
 
     fn serialize_newtype_variant<T: ?Sized>(
@@ -549,20 +496,11 @@ impl serde::Serializer for NodeSerializer {
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        // Check if flow hint is active on the stack
-        let flow_hint_active = FLOW_HINT_STACK.with(|stack| {
-            stack.borrow().last().copied().unwrap_or(false)
-        });
-
-        // If flow hint is active, temporarily enable flow_sequences
-        let mut options = self.options;
-        if flow_hint_active {
-            options.flow_sequences = true;
-        }
-
         Ok(SeqSerializer {
             nodes: Vec::with_capacity(len.unwrap_or(0)),
-            options,
+            options: self.options,
+            #[cfg(feature = "serde")]
+            style: None,
         })
     }
 
@@ -589,21 +527,12 @@ impl serde::Serializer for NodeSerializer {
     }
 
     fn serialize_map(self, _len: Option<usize>) -> Result<Self::SerializeMap, Self::Error> {
-        // Check if flow hint is active on the stack
-        let flow_hint_active = FLOW_HINT_STACK.with(|stack| {
-            stack.borrow().last().copied().unwrap_or(false)
-        });
-
-        // If flow hint is active, temporarily enable flow_mappings
-        let mut options = self.options;
-        if flow_hint_active {
-            options.flow_mappings = true;
-        }
-
         Ok(MapSerializer {
             map: MappingHash::new(),
             next_key: None,
-            options,
+            options: self.options,
+            #[cfg(feature = "serde")]
+            style: None,
         })
     }
 
@@ -618,6 +547,8 @@ impl serde::Serializer for NodeSerializer {
             map: MappingHash::new(),
             next_key: None,
             options: self.options,
+            #[cfg(feature = "serde")]
+            style: None,
         })
     }
 
@@ -632,6 +563,8 @@ impl serde::Serializer for NodeSerializer {
             map: MappingHash::new(),
             next_key: None,
             options: self.options,
+            #[cfg(feature = "serde")]
+            style: None,
         })
     }
 }
@@ -640,6 +573,8 @@ impl serde::Serializer for NodeSerializer {
 struct SeqSerializer {
     nodes: Vec<Node>,
     options: SerializerOptions,
+    #[cfg(feature = "serde")]
+    style: Option<crate::types::YamlNodeStyle>,
 }
 
 impl SerializeSeq for SeqSerializer {
@@ -653,23 +588,41 @@ impl SerializeSeq for SeqSerializer {
         let node = value.serialize(NodeSerializer {
             options: self.options.clone(),
         })?;
+
+        // Check if this is a style marker (will be a scalar with special value)
+        #[cfg(feature = "serde")]
+        if self.nodes.is_empty() {
+            // This might be a style marker - check if it's a scalar with __Flow or __Block
+            if let Node::Scalar(ref scalar) = node {
+                let s = scalar.as_str();
+                if s == "__Flow" {
+                    self.style = Some(crate::types::YamlNodeStyle::Flow);
+                    return Ok(()); // Don't add to nodes
+                } else if s == "__Block" {
+                    self.style = Some(crate::types::YamlNodeStyle::Block);
+                    return Ok(()); // Don't add to nodes
+                }
+            }
+        }
+
         self.nodes.push(node);
         Ok(())
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        let node = Node::Sequence(MarkedSequenceNode::new(
-            Span::new_blank(),
-            self.nodes,
-        ));
-
-        // If we have flow_sequences enabled, mark this node's signature
-        if self.options.flow_sequences {
-            let sig = node_signature(&node);
-            mark_for_flow_style(sig);
+        #[cfg(feature = "serde")]
+        {
+            let mut seq_node = MarkedSequenceNode::new(Span::new_blank(), self.nodes);
+            seq_node.style = self.style;
+            Ok(Node::Sequence(seq_node))
         }
-
-        Ok(node)
+        #[cfg(not(feature = "serde"))]
+        {
+            Ok(Node::Sequence(MarkedSequenceNode::new(
+                Span::new_blank(),
+                self.nodes,
+            )))
+        }
     }
 }
 
@@ -726,6 +679,8 @@ struct MapSerializer {
     map: MappingHash,
     next_key: Option<MarkedScalarNode>,
     options: SerializerOptions,
+    #[cfg(feature = "serde")]
+    style: Option<crate::types::YamlNodeStyle>,
 }
 
 impl SerializeMap for MapSerializer {
@@ -754,10 +709,29 @@ impl SerializeMap for MapSerializer {
     where
         T: Serialize,
     {
-        let key = self
-            .next_key
-            .take()
-            .ok_or_else(|| SerError::Custom("serialize_value called before serialize_key".to_string()))?;
+        let key = self.next_key.take().ok_or_else(|| {
+            SerError::Custom("serialize_value called before serialize_key".to_string())
+        })?;
+
+        // Check if this is the style marker key
+        #[cfg(feature = "serde")]
+        if key.as_str() == "__style_marker" && self.map.is_empty() {
+            // This is a style marker - extract the style
+            let node = value.serialize(NodeSerializer {
+                options: self.options.clone(),
+            })?;
+            if let Node::Scalar(ref scalar) = node {
+                let s = scalar.as_str();
+                if s == "__Flow" {
+                    self.style = Some(crate::types::YamlNodeStyle::Flow);
+                    return Ok(()); // Don't add to map
+                } else if s == "__Block" {
+                    self.style = Some(crate::types::YamlNodeStyle::Block);
+                    return Ok(()); // Don't add to map
+                }
+            }
+        }
+
         let node = value.serialize(NodeSerializer {
             options: self.options.clone(),
         })?;
@@ -766,18 +740,19 @@ impl SerializeMap for MapSerializer {
     }
 
     fn end(self) -> Result<Self::Ok, Self::Error> {
-        let node = Node::Mapping(MarkedMappingNode::new(
-            Span::new_blank(),
-            self.map,
-        ));
-
-        // If we have flow_mappings enabled, mark this node's signature
-        if self.options.flow_mappings {
-            let sig = node_signature(&node);
-            mark_for_flow_style(sig);
+        #[cfg(feature = "serde")]
+        {
+            let mut map_node = MarkedMappingNode::new(Span::new_blank(), self.map);
+            map_node.style = self.style;
+            Ok(Node::Mapping(map_node))
         }
-
-        Ok(node)
+        #[cfg(not(feature = "serde"))]
+        {
+            Ok(Node::Mapping(MarkedMappingNode::new(
+                Span::new_blank(),
+                self.map,
+            )))
+        }
     }
 }
 
@@ -826,7 +801,7 @@ impl SerializeStructVariant for MapSerializer {
 /// Emit a `Node` as a YAML string
 fn emit_yaml(node: &Node, options: &SerializerOptions) -> String {
     let mut output = String::new();
-    emit_node(&mut output, node, 0, options, false);
+    emit_node(&mut output, node, 0, options, false, false);
     output
 }
 
@@ -837,15 +812,23 @@ fn emit_node(
     indent: usize,
     options: &SerializerOptions,
     inline: bool,
+    skip_initial_newline: bool,
 ) {
     match node {
         Node::Scalar(scalar) => {
-            emit_scalar(output, scalar.as_str());
+            emit_scalar(output, scalar);
         }
         Node::Sequence(seq) => {
-            // Check if this node is marked for flow style
-            let sig = node_signature(node);
-            let use_flow = should_use_flow_style(&sig) || options.flow_sequences || inline;
+            // Check if this node has explicit flow style set
+            #[cfg(feature = "serde")]
+            let node_wants_flow = seq
+                .style
+                .map(|s| s == crate::types::YamlNodeStyle::Flow)
+                .unwrap_or(false);
+            #[cfg(not(feature = "serde"))]
+            let node_wants_flow = false;
+
+            let use_flow = node_wants_flow || options.flow_sequences || inline;
 
             if seq.is_empty() {
                 output.push_str("[]");
@@ -856,7 +839,7 @@ fn emit_node(
                     if i > 0 {
                         output.push_str(", ");
                     }
-                    emit_node(output, item, indent, options, true);
+                    emit_node(output, item, indent, options, true, false);
                 }
                 output.push(']');
             } else {
@@ -867,17 +850,27 @@ fn emit_node(
                     output.push_str("- ");
                     let is_scalar = matches!(item, Node::Scalar(_));
                     if is_scalar {
-                        emit_node(output, item, indent + 1, options, false);
+                        // Scalars: put on the same line as the dash
+                        emit_node(output, item, indent + 1, options, false, false);
                     } else {
-                        emit_node(output, item, indent + 1, options, false);
+                        // Complex types (maps/sequences): skip the initial newline
+                        // so they start on the same line as the dash
+                        emit_node(output, item, indent + 1, options, false, true);
                     }
                 }
             }
         }
         Node::Mapping(map) => {
-            // Check if this node is marked for flow style
-            let sig = node_signature(node);
-            let use_flow = should_use_flow_style(&sig) || options.flow_mappings || inline;
+            // Check if this node has explicit flow style set
+            #[cfg(feature = "serde")]
+            let node_wants_flow = map
+                .style
+                .map(|s| s == crate::types::YamlNodeStyle::Flow)
+                .unwrap_or(false);
+            #[cfg(not(feature = "serde"))]
+            let node_wants_flow = false;
+
+            let use_flow = node_wants_flow || options.flow_mappings || inline;
 
             if map.is_empty() {
                 output.push_str("{}");
@@ -888,23 +881,28 @@ fn emit_node(
                     if i > 0 {
                         output.push_str(", ");
                     }
-                    emit_scalar(output, key.as_str());
+                    emit_scalar(output, key);
                     output.push_str(": ");
-                    emit_node(output, value, indent, options, true);
+                    emit_node(output, value, indent, options, true, false);
                 }
                 output.push('}');
             } else {
                 // Block style
-                for (key, value) in map.iter() {
-                    output.push('\n');
-                    output.push_str(&"  ".repeat(indent));
-                    emit_scalar(output, key.as_str());
+                for (i, (key, value)) in map.iter().enumerate() {
+                    if i == 0 && skip_initial_newline {
+                        // First item and we're skipping initial newline (e.g., after a list dash)
+                        // The key goes on the same line as the dash
+                    } else {
+                        output.push('\n');
+                        output.push_str(&"  ".repeat(indent));
+                    }
+                    emit_scalar(output, key);
                     output.push_str(": ");
                     let is_scalar = matches!(value, Node::Scalar(_));
                     if is_scalar {
-                        emit_node(output, value, indent + 1, options, false);
+                        emit_node(output, value, indent + 1, options, false, false);
                     } else {
-                        emit_node(output, value, indent + 1, options, false);
+                        emit_node(output, value, indent + 1, options, false, false);
                     }
                 }
             }
@@ -913,35 +911,42 @@ fn emit_node(
 }
 
 /// Emit a scalar value, quoting if necessary
-fn emit_scalar(output: &mut String, value: &str) {
-    // Check if the value needs quoting
-    let needs_quoting = value.is_empty()
-        || value.contains(':')
-        || value.contains('#')
-        || value.contains('[')
-        || value.contains(']')
-        || value.contains('{')
-        || value.contains('}')
-        || value.contains(',')
-        || value.contains('&')
-        || value.contains('*')
-        || value.contains('!')
-        || value.contains('|')
-        || value.contains('>')
-        || value.contains('\'')
-        || value.contains('"')
-        || value.contains('%')
-        || value.contains('@')
-        || value.contains('`')
-        || value.starts_with('-')
-        || value.starts_with('?')
-        || value.starts_with(' ')
-        || value.ends_with(' ')
-        || value.contains('\n')
-        || matches!(
+fn emit_scalar(output: &mut String, scalar: &crate::types::MarkedScalarNode) {
+    let value = scalar.as_str();
+
+    // If may_coerce is true, this scalar can be interpreted as bool/number/null
+    // In that case, we should NOT quote boolean-like keywords because they ARE booleans
+    let is_typed_value = scalar.may_coerce()
+        && matches!(
             value,
             "true" | "false" | "null" | "True" | "False" | "TRUE" | "FALSE" | "NULL" | "~"
         );
+
+    // Check if the value needs quoting
+    let needs_quoting = !is_typed_value
+        && (value.is_empty()
+            || value.contains(':')
+            || value.contains('#')
+            || value.contains('[')
+            || value.contains(']')
+            || value.contains('{')
+            || value.contains('}')
+            || value.contains(',')
+            || value.contains('&')
+            || value.contains('*')
+            || value.contains('!')
+            || value.contains('|')
+            || value.contains('>')
+            || value.contains('\'')
+            || value.contains('"')
+            || value.contains('%')
+            || value.contains('@')
+            || value.contains('`')
+            || value.starts_with('-')
+            || value.starts_with('?')
+            || value.starts_with(' ')
+            || value.ends_with(' ')
+            || value.contains('\n'));
 
     if needs_quoting {
         // Use double quotes and escape internal quotes
@@ -962,148 +967,263 @@ fn emit_scalar(output: &mut String, value: &str) {
     }
 }
 
-/// Helper functions for using flow style with serde attributes
+/// Serde helper for serializing Vec fields in flow style (inline `[...]`)
 ///
-/// These can be used with `#[serde(serialize_with = "...")]` to control
-/// per-field serialization style.
-pub mod flow_style {
-    use super::*;
-
-    /// Serialize a sequence in flow style (inline)
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use serde::Serialize;
-    /// use marked_yaml::to_yaml_string;
-    ///
-    /// #[derive(Serialize)]
-    /// struct Config {
-    ///     #[serde(serialize_with = "marked_yaml::flow_style::serialize_seq")]
-    ///     ports: Vec<i32>,
-    /// }
-    ///
-    /// let config = Config { ports: vec![80, 443, 8080] };
-    /// let yaml = to_yaml_string(&config).unwrap();
-    /// assert!(yaml.contains("[80, 443, 8080]") || yaml.contains("ports:"));
-    /// ```
-    pub fn serialize_seq<S, T>(value: &[T], serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-        T: Serialize,
-    {
-        // This is a workaround - we serialize the sequence but can't directly
-        // control the flow style from here without context.
-        // The proper solution would require a custom serializer with state.
-        use serde::ser::SerializeSeq;
-        let mut seq = serializer.serialize_seq(Some(value.len()))?;
-        for item in value {
-            seq.serialize_element(item)?;
-        }
-        seq.end()
-    }
-
-    /// Serialize a Vec in flow style (inline)
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use serde::Serialize;
-    /// use marked_yaml::to_yaml_string;
-    ///
-    /// #[derive(Serialize)]
-    /// struct Data {
-    ///     #[serde(serialize_with = "marked_yaml::flow_style::serialize_vec")]
-    ///     items: Vec<String>,
-    /// }
-    /// ```
-    pub fn serialize_vec<S, T>(value: &Vec<T>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-        T: Serialize,
-    {
-        serialize_seq(value, serializer)
-    }
-
-    /// Serialize a mapping in flow style (inline)
-    pub fn serialize_map<S, K, V>(
-        value: &std::collections::HashMap<K, V>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-        K: Serialize,
-        V: Serialize,
-    {
-        use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(value.len()))?;
-        for (k, v) in value {
-            map.serialize_entry(k, v)?;
-        }
-        map.end()
-    }
-}
-
-/// Wrapper type that forces flow style serialization for sequences
+/// Use with `#[serde(serialize_with = "marked_yaml::as_flow_sequence")]`
 ///
 /// # Example
 ///
 /// ```
 /// use serde::Serialize;
-/// use marked_yaml::{to_yaml_string_with_options, SerializerOptions, AsFlowSeq};
+/// use marked_yaml::to_yaml_string;
 ///
 /// #[derive(Serialize)]
 /// struct Config {
-///     #[serde(serialize_with = "serialize_as_flow_seq")]
+///     name: String,
+///     #[serde(serialize_with = "marked_yaml::as_flow_sequence")]
 ///     ports: Vec<i32>,
 /// }
 ///
-/// fn serialize_as_flow_seq<S>(value: &Vec<i32>, serializer: S) -> Result<S::Ok, S::Error>
-/// where
-///     S: serde::Serializer,
-/// {
-///     marked_yaml::AsFlowSeq(value).serialize(serializer)
-/// }
+/// let config = Config {
+///     name: "web-server".to_string(),
+///     ports: vec![80, 443, 8080],
+/// };
 ///
-/// let config = Config { ports: vec![80, 443] };
-/// let mut opts = SerializerOptions::default();
-/// opts.flow_sequences = true;
-/// let yaml = to_yaml_string_with_options(&config, &opts).unwrap();
+/// let yaml = to_yaml_string(&config).unwrap();
+/// // Output:
+/// // name: web-server
+/// // ports: [80, 443, 8080]
 /// ```
-#[derive(Clone, Debug)]
-pub struct AsFlowSeq<'a, T>(pub &'a [T]);
+pub fn as_flow_sequence<T, S>(value: &[T], serializer: S) -> Result<S::Ok, S::Error>
+where
+    T: Serialize,
+    S: serde::Serializer,
+{
+    // Serialize each element to a Node
+    let mut nodes = Vec::with_capacity(value.len());
+    for item in value {
+        let node = to_node(item).map_err(serde::ser::Error::custom)?;
+        nodes.push(node);
+    }
 
-impl<'a, T: Serialize> Serialize for AsFlowSeq<'a, T> {
+    // Create a sequence node with flow style
+    let flow_node = Node::Sequence(crate::types::MarkedSequenceNode::new_flow(
+        crate::Span::new_blank(),
+        nodes,
+    ));
+
+    // Serialize the node through the parent serializer
+    serialize_node(&flow_node, serializer)
+}
+
+/// Serde helper for serializing map fields in flow style (inline `{...}`)
+///
+/// Works with HashMap, BTreeMap, and any other map-like collection.
+///
+/// Use with `#[serde(serialize_with = "marked_yaml::as_flow_mapping")]`
+pub fn as_flow_mapping<'a, K, V, M, S>(value: &'a M, serializer: S) -> Result<S::Ok, S::Error>
+where
+    K: Serialize + 'a,
+    V: Serialize + 'a,
+    &'a M: IntoIterator<Item = (&'a K, &'a V)>,
+    S: serde::Serializer,
+{
+    // Serialize to a mapping node
+    let mut map = crate::types::MappingHash::new();
+    for (k, v) in value {
+        let key_node = to_node(k).map_err(serde::ser::Error::custom)?;
+        let key_scalar = match key_node {
+            Node::Scalar(s) => s,
+            _ => {
+                return Err(serde::ser::Error::custom(
+                    "Map keys must serialize to scalars",
+                ))
+            }
+        };
+        let value_node = to_node(v).map_err(serde::ser::Error::custom)?;
+        map.insert(key_scalar, value_node);
+    }
+
+    // Create a mapping node with flow style
+    let flow_node = Node::Mapping(crate::types::MarkedMappingNode::new_flow(
+        crate::Span::new_blank(),
+        map,
+    ));
+
+    serialize_node(&flow_node, serializer)
+}
+
+/// Helper to serialize a Node through any serializer
+/// For NodeSerializer, this preserves the Node structure including style metadata
+fn serialize_node<S>(node: &Node, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    // Wrap in a DirectNodeWrapper that will return this exact node
+    DirectNodeWrapper(node.clone()).serialize(serializer)
+}
+
+/// Wrapper that returns a Node directly when serialized
+/// This is the KEY to preserving style metadata!
+struct DirectNodeWrapper(Node);
+
+impl Serialize for DirectNodeWrapper {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // The trick: we use serialize_bytes with a special marker,
+        // then intercept it in NodeSerializer
+        //
+        // Actually, better idea: use the fact that the serializer is NodeSerializer
+        // and just return the node by serializing its components
+
+        // Clone the node and serialize it component by component
+        // This way we preserve the style metadata
+        match &self.0 {
+            Node::Scalar(s) => s.as_str().serialize(serializer),
+            Node::Sequence(seq) => {
+                // Return this exact sequence node with its style preserved!
+                // We do this by wrapping in DirectSeqWrapper
+                DirectSeqWrapper(seq.clone()).serialize(serializer)
+            }
+            Node::Mapping(map) => DirectMapWrapper(map.clone()).serialize(serializer),
+        }
+    }
+}
+
+/// Wrapper for a sequence that preserves style when serialized
+struct DirectSeqWrapper(MarkedSequenceNode);
+
+impl Serialize for DirectSeqWrapper {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         use serde::ser::SerializeSeq;
-        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
-        for item in self.0 {
-            seq.serialize_element(item)?;
+
+        // Create a sequence serializer
+        let mut seq = serializer.serialize_seq(Some(self.0.len() + 1))?; // +1 for style marker
+
+        // FIRST: serialize a style marker to communicate the style to SeqSerializer!
+        #[cfg(feature = "serde")]
+        if let Some(style) = self.0.style {
+            seq.serialize_element(&StyleMarker(style))?;
         }
+
+        // Then serialize all the actual elements
+        for node in self.0.iter() {
+            seq.serialize_element(&DirectNodeWrapper(node.clone()))?;
+        }
+
         seq.end()
     }
 }
 
-/// Wrapper type that forces flow style serialization for mappings
-#[derive(Clone, Debug)]
-pub struct AsFlowMap<'a, K, V>(pub &'a std::collections::HashMap<K, V>);
+/// A marker type that carries style information
+/// When SeqSerializer sees this as the first element, it extracts the style
+/// and removes it from the sequence
+#[cfg(feature = "serde")]
+struct StyleMarker(crate::types::YamlNodeStyle);
 
-impl<'a, K: Serialize, V: Serialize> Serialize for AsFlowMap<'a, K, V> {
+#[cfg(feature = "serde")]
+impl Serialize for StyleMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // Serialize as a unit_variant with a special name
+        serializer.serialize_unit_variant(
+            "__StyleMarker",
+            self.0 as u32,
+            match self.0 {
+                crate::types::YamlNodeStyle::Block => "__Block",
+                crate::types::YamlNodeStyle::Flow => "__Flow",
+            },
+        )
+    }
+}
+
+/// Wrapper for a mapping that preserves style when serialized
+struct DirectMapWrapper(MarkedMappingNode);
+
+impl Serialize for DirectMapWrapper {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         use serde::ser::SerializeMap;
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for (k, v) in self.0 {
-            map.serialize_entry(k, v)?;
+
+        // Create a map serializer (including space for style marker if needed)
+        let map_size = if self.0.style.is_some() {
+            self.0.len() + 1
+        } else {
+            self.0.len()
+        };
+        let mut map = serializer.serialize_map(Some(map_size))?;
+
+        // FIRST: serialize a style marker if we have style info
+        #[cfg(feature = "serde")]
+        if let Some(style) = self.0.style {
+            map.serialize_entry("__style_marker", &StyleMarker(style))?;
         }
+
+        // Then serialize all the actual entries
+        for (k, v) in self.0.iter() {
+            map.serialize_entry(k.as_str(), &DirectNodeWrapper(v.clone()))?;
+        }
+
         map.end()
     }
 }
+
+/// Flow style control for YAML serialization
+///
+/// There are two main approaches to control flow style (inline formatting):
+///
+/// ## 1. Per-Field with `serialize_with` (Recommended for Selective Control)
+///
+/// ```
+/// use serde::Serialize;
+/// use marked_yaml::to_yaml_string;
+///
+/// #[derive(Serialize)]
+/// struct Config {
+///     name: String,
+///
+///     #[serde(serialize_with = "marked_yaml::as_flow_sequence")]
+///     ports: Vec<i32>,
+///
+///     #[serde(serialize_with = "marked_yaml::as_flow_sequence")]
+///     allowed_ips: Vec<String>,
+/// }
+/// ```
+///
+/// ## 2. Global Options (For All Fields of a Type)
+///
+/// Use `SerializerOptions` to control flow style globally:
+///
+/// ```rust
+/// use serde::Serialize;
+/// use marked_yaml::{to_yaml_string_with_options, SerializerOptions};
+///
+/// #[derive(Serialize)]
+/// struct Config {
+///     name: String,
+///     ports: Vec<i32>,
+/// }
+///
+/// let config = Config {
+///     name: "web-server".to_string(),
+///     ports: vec![80, 443, 8080],
+/// };
+///
+/// // ALL sequences will use flow style
+/// let yaml = to_yaml_string_with_options(
+///     &config,
+///     &SerializerOptions::with_flow_sequences()
+/// ).unwrap();
+/// ```
 
 #[cfg(test)]
 mod tests {

@@ -191,7 +191,9 @@ fn example_kubernetes_style() {
                     containers: vec![Container {
                         name: "myapp".to_string(),
                         image: "myapp:1.0.0".to_string(),
-                        ports: vec![ContainerPort { container_port: 8080 }],
+                        ports: vec![ContainerPort {
+                            container_port: 8080,
+                        }],
                         env: vec![
                             EnvVar {
                                 name: "ENV".to_string(),
@@ -214,7 +216,10 @@ fn example_kubernetes_style() {
     println!("\nWith flow sequences (compact for simple arrays like ports/env):");
     let mut opts = SerializerOptions::default();
     opts.flow_sequences = true;
-    println!("{}", to_yaml_string_with_options(&deployment, &opts).unwrap());
+    println!(
+        "{}",
+        to_yaml_string_with_options(&deployment, &opts).unwrap()
+    );
 }
 
 /// Example 4: Recommendations summary
